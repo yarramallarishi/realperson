@@ -7,7 +7,7 @@ Completed:
 - Project structure, Python dependencies, environment template, ignore rules, and Docker Compose.
 - Async SQLAlchemy persistence with SQLite by default and PostgreSQL-compatible URLs.
 - FastAPI Discord OAuth login with server-side sessions and encrypted OAuth tokens, guild
-  authorization, configuration, and analytics.
+  authorization, short-lived cached permission checks, configuration, and analytics.
 - Initial Alembic schema migration and PostgreSQL-aware migration environment.
 - Discord bot startup, Groq provider, `/ask`, conversation reset, moderation commands, opt-in
   message automod, moderation log channel, suspicious-join logging, and welcome/goodbye events.
@@ -44,6 +44,8 @@ Commands checked:
 - Public tunnel dashboard returned HTTP 200 and `/auth/login` returned HTTP 307.
 - API and Discord bot started successfully through the Quick Tunnel launcher.
 - Discord OAuth callback must be added to the Developer Portal before users can finish sign-in.
+- Discord guild-list rate limiting was causing API 502s; access checks now share a per-session
+  30-second cache and Discord rate limits return a retryable 503.
 
 Validation notes:
 

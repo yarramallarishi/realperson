@@ -14,7 +14,7 @@ from omnibot.config import get_settings
 from omnibot.db.models import AIUsage, AuthSession, GuildEvent, ModerationCase
 from omnibot.db.session import SessionLocal, get_db
 from omnibot.services.discord_auth import (
-    authorized_guilds, decrypt_access_token, discord_get, encrypt_access_token,
+    authorized_guilds, clear_guild_cache, decrypt_access_token, discord_get, encrypt_access_token,
     exchange_code, require_guild_access, require_user,
 )
 from omnibot.services.guild_settings import get_guild_settings, save_guild_settings
@@ -74,6 +74,7 @@ async def callback(request: Request, code: str, state: str):
 @router.post("/auth/logout")
 async def logout(request: Request):
     session_id = request.session.get("session_id")
+    clear_guild_cache(session_id)
     token = None
     if session_id:
         async with SessionLocal() as db:

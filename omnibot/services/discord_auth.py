@@ -1,7 +1,9 @@
 import base64
+import asyncio
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
+from time import monotonic
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
@@ -13,6 +15,29 @@ from omnibot.db.session import SessionLocal
 
 DISCORD_API = "https://discord.com/api/v10"
 MANAGE_GUILD = 1 << 5
+GUILD_CACHE_TTL_SECONDS = 30
+_guild_cache: dict[str, tuple[float, list[dict]]] = {}
+_guild_cache_locks: dict[str, asyncio.Lock] = {}
+
+
+def clear_guild_cache(session_id: str | None) -> None:
+    if session_id:
+        _guild_cache.pop(session_id, None)
+        _guild_cache_locks.pop(session_id, None)
+
+
+def _discord_error(response: httpx.Response) -> HTTPException:
+    if response.status_code == 429:
+        try:
+            retry_after = max(1, int(float(response.headers.get("Retry-After", "5")) + 0.999))
+        except ValueError:
+            retry_after = 5
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Discord is temporarily rate-limiting server access checks. Please try again shortly.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    return HTTPException(status_code=502, detail="Discord API request failed")
 
 
 def encrypt_access_token(token: str) -> str:
@@ -57,7 +82,7 @@ async def discord_get(path: str, token: str) -> list | dict:
     if response.status_code == 401:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Discord session expired")
     if response.is_error:
-        raise HTTPException(status_code=502, detail="Discord API request failed")
+        raise _discord_error(response)
     return response.json()
 
 
@@ -90,11 +115,31 @@ async def require_user(request: Request) -> dict:
 
 async def authorized_guilds(request: Request) -> list[dict]:
     _, token = await load_login(request)
-    guilds = await discord_get("/users/@me/guilds", token)
-    return [
-        guild for guild in guilds
-        if guild.get("owner") or int(guild.get("permissions", "0")) & MANAGE_GUILD
-    ]
+    session_id = request.session["session_id"]
+    now = monotonic()
+    cached = _guild_cache.get(session_id)
+    if cached and now - cached[0] < GUILD_CACHE_TTL_SECONDS:
+        return cached[1]
+
+    lock = _guild_cache_locks.setdefault(session_id, asyncio.Lock())
+    async with lock:
+        now = monotonic()
+        cached = _guild_cache.get(session_id)
+        if cached and now - cached[0] < GUILD_CACHE_TTL_SECONDS:
+            return cached[1]
+        guilds = await discord_get("/users/@me/guilds", token)
+        manageable = [
+            guild for guild in guilds
+            if guild.get("owner") or int(guild.get("permissions", "0")) & MANAGE_GUILD
+        ]
+        _guild_cache[session_id] = (monotonic(), manageable)
+        if len(_guild_cache) > 1024:
+            cutoff = monotonic() - GUILD_CACHE_TTL_SECONDS
+            for key, (cached_at, _) in list(_guild_cache.items()):
+                if cached_at < cutoff:
+                    _guild_cache.pop(key, None)
+                    _guild_cache_locks.pop(key, None)
+        return manageable
 
 
 async def require_guild_access(request: Request, guild_id: int) -> dict:

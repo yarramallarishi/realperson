@@ -1,6 +1,7 @@
 import pytest
 
 from omnibot.api.schemas import validate_section
+from omnibot.services import discord_auth
 from omnibot.services.discord_auth import MANAGE_GUILD, decrypt_access_token, encrypt_access_token
 from omnibot.services.rate_limit import SlidingWindowLimiter
 from omnibot.services.guild_settings import DEFAULT_SETTINGS, merge_defaults
@@ -51,3 +52,36 @@ def test_rate_limiter_rejects_excess_and_expires_old_hits():
     assert limiter.hit("user", limit=2, window_seconds=10, now=101) is None
     assert limiter.hit("user", limit=2, window_seconds=10, now=102) == 8
     assert limiter.hit("user", limit=2, window_seconds=10, now=110) is None
+
+
+@pytest.mark.asyncio
+async def test_manageable_guilds_are_cached_per_login_session(monkeypatch):
+    session_id = "guild-cache-test"
+    discord_auth.clear_guild_cache(session_id)
+    calls = 0
+
+    async def fake_load_login(_request):
+        return {"id": "user-1"}, "access-token"
+
+    async def fake_discord_get(path, token):
+        nonlocal calls
+        calls += 1
+        assert path == "/users/@me/guilds"
+        assert token == "access-token"
+        return [
+            {"id": "managed", "owner": False, "permissions": str(MANAGE_GUILD)},
+            {"id": "not-managed", "owner": False, "permissions": "0"},
+            {"id": "owned", "owner": True, "permissions": "0"},
+        ]
+
+    monkeypatch.setattr(discord_auth, "load_login", fake_load_login)
+    monkeypatch.setattr(discord_auth, "discord_get", fake_discord_get)
+    request = type("Request", (), {"session": {"session_id": session_id}})()
+
+    first = await discord_auth.authorized_guilds(request)
+    second = await discord_auth.authorized_guilds(request)
+
+    assert [guild["id"] for guild in first] == ["managed", "owned"]
+    assert second == first
+    assert calls == 1
+    discord_auth.clear_guild_cache(session_id)
