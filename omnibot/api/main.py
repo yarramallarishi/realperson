@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
 from logging import getLogger
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from omnibot.api.routes import router
@@ -42,3 +44,7 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 app.include_router(router)
+
+frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if frontend_dist.is_dir():
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="dashboard")

@@ -91,6 +91,31 @@ For local Compose use, set `FRONTEND_URL=http://localhost:8080` in `.env`; the A
 Alembic migrations before accepting requests, and the bot waits for the API health check.
 Set a non-placeholder `POSTGRES_PASSWORD` in `.env` before starting Compose.
 
+## Free public access with Cloudflare Quick Tunnel
+
+On Windows, install `cloudflared` once:
+
+```powershell
+winget install --id Cloudflare.cloudflared --exact --accept-package-agreements --accept-source-agreements
+```
+
+Restart PowerShell after installation. From the project root, run:
+
+```powershell
+.\scripts\start-cloudflare.ps1
+```
+
+The script builds the dashboard, applies SQLite migrations, creates a temporary Cloudflare HTTPS
+URL, and starts the API and bot. The API serves the built dashboard and API from the same origin.
+Copy the printed `Discord redirect URI` into **Discord Developer Portal → OAuth2 → Redirects**,
+save, then open the printed dashboard URL and sign in. The redirect URL is different each time a
+Quick Tunnel starts, so update Discord OAuth2 Redirects whenever the URL changes.
+
+Quick Tunnels require no Cloudflare account or domain, but the URL is temporary and changes after
+restart. Your PC must remain on and connected to the internet, and the PowerShell window running
+the script must stay open. This is a free temporary public link, not always-on hosting. Never
+publish `.env`; keep the bot and API keys private.
+
 ## Free hosting notes
 
 Free tiers and eligibility change over time. A practical low-cost setup is a small always-on
