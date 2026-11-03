@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: omnibot
+      POSTGRES_USER: omnibot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omnibot -d omnibot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  api:
+    build: .
+    command: ["sh", "-c", "alembic upgrade head && uvicorn omnibot.api.main:app --host 0.0.0.0 --port 8000"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://omnibot:${POSTGRES_PASSWORD}@db:5432/omnibot
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  bot:
+    build: .
+    command: ["python", "-m", "omnibot.bot"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://omnibot:${POSTGRES_PASSWORD}@db:5432/omnibot
+    depends_on:
+      api:
+        condition: service_healthy
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+volumes:
+  postgres_data:
